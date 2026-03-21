@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# SessionStart hook: injects cmux workspace context into every cy session
+# Only activates when running inside cmux
+
+if [[ -z "${CMUX_WORKSPACE_ID:-}" ]]; then
+  exit 0
+fi
+
+# Get workspace info
+ws_name=$(cmux list-workspaces 2>/dev/null | grep '\[selected\]' | sed 's/^[* ]*//' | sed 's/ \[selected\]//' | sed 's/^workspace:[0-9]*  //')
+panes=$(cmux list-panes 2>/dev/null | tr '\n' '; ')
+status=$(cmux list-status 2>/dev/null | tr '\n' '; ')
+
+# Check for project state file
+project_dir="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+state_file="$project_dir/.cmux-ide.state.json"
+
+state_info=""
+if [[ -f "$state_file" ]]; then
+  state_info=$(python3 -c "
+import json, sys
+d = json.load(open('$state_file'))
+parts = []
+if d.get('browser_workspace'): parts.append(f\"Linked browser: {d['browser_workspace']}\")
+if d.get('surfaces'):
+    for name, sf in d['surfaces'].items():
+        parts.append(f\"  {name}: {sf}\")
+if d.get('profile'): parts.append(f\"Profile: {d['profile']}\")
+print(' | '.join(parts))
+" 2>/dev/null) || state_info=""
+fi
+
+# Escape for JSON
+msg="You are running inside cmux workspace '${ws_name}'. Panes: ${panes} Status: ${status} ${state_info} Use cmux CLI or cmuxlayer MCP tools to manage workspace surfaces. You can start/stop dev servers, diagnose errors, read terminal output from other tabs, and manage the IDE layout."
+msg=$(echo "$msg" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+
+echo "{\"systemMessage\": $msg}"
