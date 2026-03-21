@@ -28,24 +28,31 @@ Based on what you found:
 
 ### 3. Create surface tabs
 
-For each tool/service, create a tab in the RIGHT pane:
+For each tool/service, create a tab in the RIGHT pane. **Always rename the tab immediately after creating it** — this is critical for usability.
 
+For the FIRST tab in the right pane, use the existing surface from the split (don't create a new one). For all subsequent tabs, create a new surface.
+
+**Pattern for each tab:**
 ```bash
-# Get the right pane ref (the second pane)
-# cmux list-panes shows both panes — use the non-focused one
-
-# Create a new surface tab in the right pane
+# For first tab: skip new-surface, use existing right surface
+# For additional tabs:
 cmux new-surface --pane <right_pane_ref> --workspace <ws_ref>
 
-# Rename the tab
-cmux rename-tab --workspace <ws_ref> --surface <new_surface_ref> "<label>"
+# ALWAYS rename immediately (before sending any commands)
+cmux rename-tab --workspace <ws_ref> --surface <surface_ref> "<label>"
 
-# Send the launch command
-cmux send --workspace <ws_ref> --surface <new_surface_ref> "cd '<project_dir>' && <command>"
-cmux send-key --workspace <ws_ref> --surface <new_surface_ref> Return
+# Then send the launch command
+cmux send --workspace <ws_ref> --surface <surface_ref> "cd '<project_dir>' && <command>"
+cmux send-key --workspace <ws_ref> --surface <surface_ref> Return
 ```
 
-For the FIRST tab in the right pane, use the existing surface (don't create a new one).
+**Required tab names** (use these exact labels):
+| Tool | Tab label |
+|------|-----------|
+| gitui | `gitui` |
+| ralph-tui | `ralph-tui` |
+| terminal | `terminal` |
+| Dev servers | Use the service name, e.g. `next dev`, `convex dev`, `bun dev` |
 
 ### 4. Create linked browser workspace (if web project)
 
