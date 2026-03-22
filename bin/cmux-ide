@@ -1,87 +1,82 @@
 #!/usr/bin/env bash
 # cmux-ide — Modular IDE-like workspace launcher for cmux
-# Usage: cmux-ide [--profile NAME] [project-path]
-#        cmux-ide              (interactive menu)
-#        cmux-ide --add-fav    (add current dir to favorites)
-#        cmux-ide --rm-fav     (remove a favorite)
-#        cmux-ide --list-fav   (list favorites)
+# Usage: cmux-ide [project-path]   (defaults to current directory)
 
 set -uo pipefail
 
 CONFIG_DIR="$HOME/.config/cmux-ide"
-FAVORITES_FILE="$CONFIG_DIR/favorites"
-RECENTS_FILE="$CONFIG_DIR/recents"
-PROJECTS_DIR="${CMUX_IDE_PROJECTS_DIR:-$HOME/dev}"
-MAX_RECENTS=10
-
 mkdir -p "$CONFIG_DIR"
-touch "$FAVORITES_FILE" "$RECENTS_FILE"
 
-# --- helpers ---
+# --- agent resolution ---
 
-add_recent() {
-  local dir="$1"
-  grep -v "^${dir}$" "$RECENTS_FILE" 2>/dev/null > "$RECENTS_FILE.tmp" || true
-  { echo "$dir"; head -n $((MAX_RECENTS - 1)) "$RECENTS_FILE.tmp"; } > "$RECENTS_FILE"
-  rm -f "$RECENTS_FILE.tmp"
-}
+resolve_agent() {
+  local project_dir="${1:-}"
 
-print_menu() {
-  local i=1
-
-  if [[ -s "$FAVORITES_FILE" ]]; then
-    echo ""
-    echo "  ⭐ Favorites"
-    echo "  ──────────────────────────────"
-    while IFS= read -r fav; do
-      [[ -z "$fav" ]] && continue
-      local name
-      name=$(basename "$fav")
-      printf "  %2d) %s\n" "$i" "$name"
-      CHOICES[$i]="$fav"
-      ((i++))
-    done < "$FAVORITES_FILE"
+  # 1. Env var override
+  if [[ -n "${CMUX_IDE_AGENT:-}" ]]; then
+    echo "$CMUX_IDE_AGENT"
+    return
   fi
 
-  if [[ -s "$RECENTS_FILE" ]]; then
-    echo ""
-    echo "  🕐 Recent"
-    echo "  ──────────────────────────────"
-    while IFS= read -r rec; do
-      [[ -z "$rec" ]] && continue
-      grep -qx "$rec" "$FAVORITES_FILE" 2>/dev/null && continue
-      local name
-      name=$(basename "$rec")
-      printf "  %2d) %s\n" "$i" "$name"
-      CHOICES[$i]="$rec"
-      ((i++))
-    done < "$RECENTS_FILE"
+  # 2. Per-project override (.cmux-ide.json "agent" field)
+  if [[ -n "$project_dir" && -f "$project_dir/.cmux-ide.json" ]]; then
+    local proj_agent
+    proj_agent=$(python3 -c "import json; print(json.load(open('$project_dir/.cmux-ide.json')).get('agent',''))" 2>/dev/null) || proj_agent=""
+    if [[ -n "$proj_agent" ]]; then
+      echo "$proj_agent"
+      return
+    fi
   fi
 
-  if [[ -d "$PROJECTS_DIR" ]]; then
-    echo ""
-    echo "  📁 Projects"
-    echo "  ──────────────────────────────"
-    for dir in "$PROJECTS_DIR"/*/; do
-      [[ ! -d "$dir" ]] && continue
-      local name
-      name=$(basename "$dir")
-      local already=false
-      for existing in "${CHOICES[@]+"${CHOICES[@]}"}"; do
-        [[ "$existing" == "${dir%/}" ]] && already=true && break
-      done
-      $already && continue
-      printf "  %2d) %s\n" "$i" "$name"
-      CHOICES[$i]="${dir%/}"
-      ((i++))
-    done
+  # 3. Global config
+  if [[ -f "$CONFIG_DIR/agent" ]]; then
+    local global_agent
+    global_agent=$(head -1 "$CONFIG_DIR/agent")
+    if [[ -n "$global_agent" ]]; then
+      echo "$global_agent"
+      return
+    fi
   fi
 
-  echo ""
-  echo "   p) Enter path manually"
-  echo "   f) Add current dir to favorites"
-  echo "   q) Quit"
-  echo ""
+  # 4. First-run prompt — only if interactive terminal
+  if [[ ! -t 0 ]]; then
+    # Non-interactive: default to claude silently
+    echo "claude" > "$CONFIG_DIR/agent"
+    echo "claude"
+    return
+  fi
+
+  echo "" >&2
+  echo "  ┌─────────────────────────────────────────────┐" >&2
+  echo "  │  First-run setup: Which AI agent do you use? │" >&2
+  echo "  ├─────────────────────────────────────────────┤" >&2
+  echo "  │  1) claude    (Claude Code)                  │" >&2
+  echo "  │  2) codex     (OpenAI Codex CLI)             │" >&2
+  echo "  │  3) opencode  (OpenCode)                     │" >&2
+  echo "  │  4) pi        (Pi)                           │" >&2
+  echo "  │  5) Other     (enter command)                │" >&2
+  echo "  └─────────────────────────────────────────────┘" >&2
+  echo "" >&2
+  printf "  Choice [1]: " >&2
+  read -r agent_choice </dev/tty
+
+  local agent
+  case "${agent_choice:-1}" in
+    1|"") agent="claude" ;;
+    2) agent="codex" ;;
+    3) agent="opencode" ;;
+    4) agent="pi" ;;
+    *)
+      printf "  Agent command: " >&2
+      read -r agent </dev/tty
+      ;;
+  esac
+
+  echo "$agent" > "$CONFIG_DIR/agent"
+  echo "" >&2
+  echo "  Saved: $agent (change anytime in ~/.config/cmux-ide/agent)" >&2
+  echo "" >&2
+  echo "$agent"
 }
 
 # --- launch ---
@@ -97,10 +92,11 @@ launch_workspace() {
   local project_name
   project_name=$(basename "$project_dir")
 
-  add_recent "$project_dir"
+  local agent
+  agent=$(resolve_agent "$project_dir")
 
   echo ""
-  echo "  Launching workspace: $project_name"
+  echo "  Launching workspace: $project_name (agent: $agent)"
   echo "  ─────────────────────────────────────"
 
   # 1. Create workspace
@@ -119,129 +115,59 @@ launch_workspace() {
   left_surface=$(cmux send --workspace "$ws_ref" " " 2>&1 | grep -oE 'surface:[0-9]+' | head -1) || left_surface=""
   cmux send-key --workspace "$ws_ref" BackSpace 2>/dev/null || true
 
-  # 3. Split right (creates empty right pane for cy to populate)
-  cmux new-split right --workspace "$ws_ref" 2>/dev/null || true
+  # 3. Set initial progress indicator
+  cmux set-progress 0.0 --label "Starting setup..." --workspace "$ws_ref" 2>/dev/null || true
 
-  sleep 0.3
+  # 4. Phase 1: Analyze workspace — Haiku for claude, default plan for others
+  local plan_json
+  if [[ "$agent" == "claude" ]]; then
+    plan_json=$("$HOME/bin/cmux-ide-modules/analyze-workspace.sh" "$project_dir") || \
+      plan_json='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
+  else
+    plan_json='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
+  fi
 
-  # 4. Rename left tab and launch cy with /setup-workspace
+  # 5. Phase 2: Execute — create all surfaces mechanically
+  echo "$plan_json" | "$HOME/bin/cmux-ide-modules/create-surfaces.sh" "$ws_ref" "$project_dir"
+
+  # 6. Launch agent in left pane
   if [[ -n "$left_surface" ]]; then
-    cmux rename-tab --workspace "$ws_ref" --surface "$left_surface" "Claude Code" 2>/dev/null || true
-    cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && cy /setup-workspace"
+    cmux rename-tab --workspace "$ws_ref" --surface "$left_surface" "$agent" 2>/dev/null || true
+    if [[ "$agent" == "claude" ]]; then
+      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && claude --dangerously-skip-permissions"
+    else
+      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && $agent"
+    fi
     cmux send-key --workspace "$ws_ref" --surface "$left_surface" Return
   fi
 
-  # 5. Select the new workspace
+  # 7. Select the new workspace
   cmux select-workspace --workspace "$ws_ref"
 
   echo ""
-  echo "  ✓ Workspace created: $project_name"
-  echo "    Claude Code is setting up the environment..."
+  echo "  ✓ Workspace ready: $project_name (agent: $agent)"
   echo ""
 }
 
-# --- subcommands ---
+# --- main ---
 
 case "${1:-}" in
-  --add-fav)
-    dir="${2:-$(pwd)}"
-    dir=$(cd "$dir" && pwd)
-    if grep -qx "$dir" "$FAVORITES_FILE" 2>/dev/null; then
-      echo "Already a favorite: $(basename "$dir")"
-    else
-      echo "$dir" >> "$FAVORITES_FILE"
-      echo "Added favorite: $(basename "$dir")"
-    fi
-    exit 0
-    ;;
-  --rm-fav)
-    if [[ ! -s "$FAVORITES_FILE" ]]; then
-      echo "No favorites saved."
-      exit 0
-    fi
-    echo "Remove which favorite?"
-    i=1
-    declare -A RM_CHOICES
-    while IFS= read -r fav; do
-      [[ -z "$fav" ]] && continue
-      printf "  %d) %s\n" "$i" "$(basename "$fav")"
-      RM_CHOICES[$i]="$fav"
-      ((i++))
-    done < "$FAVORITES_FILE"
-    printf "\n  Choice: "
-    read -r choice
-    if [[ -n "${RM_CHOICES[$choice]:-}" ]]; then
-      grep -v "^${RM_CHOICES[$choice]}$" "$FAVORITES_FILE" > "$FAVORITES_FILE.tmp"
-      mv "$FAVORITES_FILE.tmp" "$FAVORITES_FILE"
-      echo "Removed: $(basename "${RM_CHOICES[$choice]}")"
-    fi
-    exit 0
-    ;;
-  --list-fav)
-    echo "Favorites:"
-    cat "$FAVORITES_FILE"
-    exit 0
-    ;;
   --help|-h)
-    echo "cmux-ide — Modular IDE workspace launcher for cmux"
+    echo "cmux-ide — IDE workspace launcher for cmux"
     echo ""
     echo "Usage:"
-    echo "  cmux-ide                  Interactive project picker"
-    echo "  cmux-ide <path>           Launch workspace"
-    echo "  cmux-ide --add-fav [dir]  Add directory to favorites"
-    echo "  cmux-ide --rm-fav         Remove a favorite"
-    echo "  cmux-ide --list-fav       List favorites"
+    echo "  cmux-ide              Launch workspace for current directory"
+    echo "  cmux-ide <path>       Launch workspace for specified path"
     echo ""
-    echo "cy launches with /setup-workspace to dynamically configure surfaces."
+    echo "Agent config: CMUX_IDE_AGENT env var > .cmux-ide.json > ~/.config/cmux-ide/agent"
+    echo "Workspace tabs are created automatically before the agent launches."
+    echo "Claude projects use Haiku to detect dev servers; other agents get gitui + terminal."
     exit 0
     ;;
   "")
-    # Interactive mode — fall through to menu
+    launch_workspace "$(pwd)"
     ;;
   *)
     launch_workspace "$(cd "$1" && pwd)"
-    exit 0
-    ;;
-esac
-
-# --- interactive menu ---
-
-declare -A CHOICES
-
-echo ""
-echo "  cmux-ide — Project Workspace Launcher"
-echo "  ═══════════════════════════════════════"
-
-print_menu
-
-printf "  Choice: "
-read -r choice
-
-case "$choice" in
-  q|Q)
-    exit 0
-    ;;
-  p|P)
-    printf "  Path: "
-    read -r custom_path
-    custom_path="${custom_path/#\~/$HOME}"
-    launch_workspace "$(cd "$custom_path" && pwd)"
-    ;;
-  f|F)
-    dir="$(pwd)"
-    if grep -qx "$dir" "$FAVORITES_FILE" 2>/dev/null; then
-      echo "Already a favorite: $(basename "$dir")"
-    else
-      echo "$dir" >> "$FAVORITES_FILE"
-      echo "Added favorite: $(basename "$dir")"
-    fi
-    ;;
-  *)
-    if [[ -n "${CHOICES[$choice]:-}" ]]; then
-      launch_workspace "${CHOICES[$choice]}"
-    else
-      echo "Invalid choice"
-      exit 1
-    fi
     ;;
 esac

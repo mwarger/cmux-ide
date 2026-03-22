@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook: injects cmux workspace context into every cy session
+# SessionStart hook: injects cmux workspace context into every Claude Code session
 # Only activates when running inside cmux
 
 if [[ -z "${CMUX_WORKSPACE_ID:-}" ]]; then
