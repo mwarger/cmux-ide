@@ -31,7 +31,7 @@ print(' | '.join(parts))
 fi
 
 # Escape for JSON
-msg="You are running inside cmux workspace '${ws_name}'. Panes: ${panes} Status: ${status} ${state_info} Use cmux CLI or cmuxlayer MCP tools to manage workspace surfaces. You can start/stop dev servers, diagnose errors, read terminal output from other tabs, and manage the IDE layout."
+msg="You are running inside cmux workspace '${ws_name}'. Panes: ${panes} Status: ${status} ${state_info} Use cmux CLI commands to manage workspace surfaces. You can start/stop dev servers, diagnose errors, read terminal output from other tabs, and manage the IDE layout."
 msg=$(echo "$msg" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
 
 echo "{\"systemMessage\": $msg}"

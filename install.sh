@@ -28,16 +28,13 @@ ln -sf "$SCRIPT_DIR/skills/using-cmux/SKILL.md" "$HOME/.claude/skills/using-cmux
 echo ""
 echo "Installed. Remaining manual steps:"
 echo ""
-echo "1. Add cmuxlayer MCP server:"
-echo "   claude mcp add --scope user cmuxlayer -- node /path/to/cmuxlayer/dist/index.js"
-echo ""
-echo "2. Add SessionStart hook to ~/.claude/settings.json:"
+echo "1. Add SessionStart hook to ~/.claude/settings.json:"
 echo '   "SessionStart": [{"hooks": [{"type": "command", "command": "$HOME/bin/cmux-ide-session-hook"}]}]'
 echo ""
-echo "3. Add Notification hook to ~/.claude/settings.json:"
+echo "2. Add Notification hook to ~/.claude/settings.json:"
 echo '   "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "cmux notify --title '\''Claude Code'\'' --body '\''Needs attention'\'' 2>/dev/null || true"}]}]'
 echo ""
-echo "4. Add ide() function to ~/.zshrc:"
+echo "3. Add ide() function to ~/.zshrc:"
 echo '   ide() { local m=$(grep -i "/${1}$" ~/.config/cmux-ide/favorites 2>/dev/null | head -1); [[ -z "$m" ]] && m=$(grep -i "$1" ~/.config/cmux-ide/favorites 2>/dev/null | head -1); [[ -n "$m" ]] && cmux-ide "$m" || { echo "No match: $1"; cmux-ide --list-fav; }; }'
 echo ""
 echo "Done."

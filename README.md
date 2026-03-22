@@ -46,7 +46,7 @@ Workspaces are cross-referenced via `cmux set-status` metadata. Claude Code can 
 
 Every cy session automatically knows about its workspace via:
 
-- **cmuxlayer MCP server** — gives all cy sessions tools to `read_screen`, `send_input`, `spawn_agent`, `stop_agent` on any surface
+- **cmux CLI** — gives all cy sessions the ability to `read-screen`, `send`, `new-split`, `browser` and more on any surface
 - **SessionStart hook** — injects workspace state (surfaces, browser link, git info) into every cy session on launch
 
 This means any cy session can:
@@ -101,14 +101,13 @@ cd ~/dev/cmux-ide
 ./install.sh
 ```
 
-The installer symlinks everything into place. See the output for manual steps (MCP server, hooks, shell alias).
+The installer symlinks everything into place. See the output for manual steps (hooks, shell alias).
 
 ### Prerequisites
 
 - [cmux](https://cmux.com) (macOS terminal for AI agents)
 - [Claude Code](https://claude.com/claude-code) (`cy` alias for `claude --dangerously-skip-permissions`)
 - [gitui](https://github.com/extrawurst/gitui) (`brew install gitui`)
-- [cmuxlayer](https://github.com/EtanHey/cmuxlayer) MCP server (for persistent IDE management)
 
 ## File structure
 
