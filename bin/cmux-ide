@@ -79,13 +79,27 @@ resolve_agent() {
   echo "$agent"
 }
 
+# --- spinner helper ---
+
+spin() {
+  local pid=$1 msg=$2
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  %s %s" "${frames[i++ % ${#frames[@]}]}" "$msg" >&2
+    sleep 0.1
+  done
+  wait "$pid"
+  return $?
+}
+
 # --- launch ---
 
 launch_workspace() {
   local project_dir="$1"
 
   if [[ ! -d "$project_dir" ]]; then
-    echo "Error: $project_dir does not exist"
+    echo "Error: $project_dir does not exist" >&2
     exit 1
   fi
 
@@ -95,58 +109,69 @@ launch_workspace() {
   local agent
   agent=$(resolve_agent "$project_dir")
 
-  echo ""
-  echo "  Launching workspace: $project_name (agent: $agent)"
-  echo "  ─────────────────────────────────────"
+  echo "" >&2
+  echo "  cmux-ide · $project_name ($agent)" >&2
+  echo "" >&2
 
   # 1. Create workspace
   local ws_ref
   ws_ref=$(cmux new-workspace --cwd "$project_dir" 2>&1 | grep -oE 'workspace:[0-9]+' | head -1) || ws_ref=""
   if [[ -z "$ws_ref" ]]; then
-    echo "  Error: Failed to create workspace"
+    echo "  Error: Failed to create workspace" >&2
     return 1
   fi
 
   sleep 0.5
-  cmux rename-workspace --workspace "$ws_ref" "$project_name"
+  cmux rename-workspace --workspace "$ws_ref" "$project_name" >/dev/null 2>&1
 
   # 2. Discover left surface
   local left_surface
   left_surface=$(cmux send --workspace "$ws_ref" " " 2>&1 | grep -oE 'surface:[0-9]+' | head -1) || left_surface=""
-  cmux send-key --workspace "$ws_ref" BackSpace 2>/dev/null || true
+  cmux send-key --workspace "$ws_ref" BackSpace >/dev/null 2>&1 || true
 
   # 3. Set initial progress indicator
-  cmux set-progress 0.0 --label "Starting setup..." --workspace "$ws_ref" 2>/dev/null || true
+  cmux set-progress 0.0 --label "Starting setup..." --workspace "$ws_ref" >/dev/null 2>&1 || true
 
   # 4. Phase 1: Analyze workspace — Haiku for claude, default plan for others
-  local plan_json
+  local plan_json tmp_plan
+  local default_plan='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
   if [[ "$agent" == "claude" ]]; then
-    plan_json=$("$HOME/bin/cmux-ide-modules/analyze-workspace.sh" "$project_dir") || \
-      plan_json='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
+    tmp_plan=$(mktemp)
+    "$HOME/bin/cmux-ide-modules/analyze-workspace.sh" "$project_dir" > "$tmp_plan" &
+    spin $! "Analyzing project..."
+    local analyze_exit=$?
+    printf "\r  ✓ Analyzing project...  \n" >&2
+    if [[ $analyze_exit -eq 0 ]]; then
+      plan_json=$(cat "$tmp_plan")
+    else
+      plan_json="$default_plan"
+    fi
+    rm -f "$tmp_plan"
   else
-    plan_json='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
+    plan_json="$default_plan"
   fi
 
   # 5. Phase 2: Execute — create all surfaces mechanically
-  echo "$plan_json" | "$HOME/bin/cmux-ide-modules/create-surfaces.sh" "$ws_ref" "$project_dir"
+  echo "$plan_json" | "$HOME/bin/cmux-ide-modules/create-surfaces.sh" "$ws_ref" "$project_dir" >/dev/null 2>&1 &
+  spin $! "Creating workspace..."
+  printf "\r  ✓ Creating workspace...  \n" >&2
 
   # 6. Launch agent in left pane
   if [[ -n "$left_surface" ]]; then
-    cmux rename-tab --workspace "$ws_ref" --surface "$left_surface" "$agent" 2>/dev/null || true
+    cmux rename-tab --workspace "$ws_ref" --surface "$left_surface" "$agent" >/dev/null 2>&1 || true
     if [[ "$agent" == "claude" ]]; then
-      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && claude --dangerously-skip-permissions"
+      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && claude --dangerously-skip-permissions" >/dev/null 2>&1
     else
-      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && $agent"
+      cmux send --workspace "$ws_ref" --surface "$left_surface" "cd '$project_dir' && $agent" >/dev/null 2>&1
     fi
-    cmux send-key --workspace "$ws_ref" --surface "$left_surface" Return
+    cmux send-key --workspace "$ws_ref" --surface "$left_surface" Return >/dev/null 2>&1
   fi
+  printf "  ✓ Launching %s\n" "$agent" >&2
 
   # 7. Select the new workspace
-  cmux select-workspace --workspace "$ws_ref"
+  cmux select-workspace --workspace "$ws_ref" >/dev/null 2>&1
 
-  echo ""
-  echo "  ✓ Workspace ready: $project_name (agent: $agent)"
-  echo ""
+  echo "" >&2
 }
 
 # --- main ---

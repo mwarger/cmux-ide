@@ -1,21 +1,14 @@
 # cmux-ide
 
-IDE-like workspace launcher for [cmux](https://cmux.com). Creates project workspaces with a two-pane layout, then lets your AI agent dynamically configure surfaces based on your project context.
-
-Supports any terminal-based AI agent: Claude Code, Codex CLI, Aider, or custom agents.
-
-## How it works
+Project workspaces for [cmux](https://cmux.com) that set themselves up. Point it at a directory, and it analyzes your project, creates the right tabs and browser windows, then drops you into your AI agent — all in about 3 seconds.
 
 ```
-cmux-ide (bash)
-  └── Resolves agent (env var > .cmux-ide.json > global config > first-run prompt)
-  └── Creates workspace skeleton (2 panes: AI agent | empty right pane)
-  └── Launches agent in project directory
-        └── Claude Code: runs /setup-workspace to auto-configure surfaces
-        └── Other agents: launched directly in the project dir
-```
+  cmux-ide · build-with-gleam (claude)
 
-### Layout
+  ✓ Analyzing project...
+  ✓ Creating workspace...
+  ✓ Launching claude
+```
 
 **Code workspace** (two panes, right has surface tabs):
 ```
@@ -37,7 +30,40 @@ cmux-ide (bash)
 └────────────────────────────────────────────┘
 ```
 
-Workspaces are cross-referenced via `cmux set-status` metadata. The agent can discover the linked browser by running `cmux list-status`.
+Workspaces are cross-referenced via sidebar metadata. The agent can discover the linked browser by running `cmux list-status`.
+
+## Quick start
+
+```bash
+# Launch workspace for current directory
+cmux-ide
+
+# Launch workspace for a specific project
+cmux-ide ~/dev/my-project
+
+# Override agent for one session
+CMUX_IDE_AGENT=codex cmux-ide ~/dev/my-project
+```
+
+Supports any terminal-based AI agent: Claude Code, Codex CLI, OpenCode, Aider, or custom agents.
+
+## How it works
+
+Setup happens in two phases before the agent launches:
+
+### 1. Analyze
+
+Haiku reads your project context — `package.json`, `CLAUDE.md`, `.cmux-ide.json` — detects frameworks, dev servers, and tooling, then returns a JSON plan describing which tabs and browser windows to create.
+
+### 2. Create
+
+Bash mechanically executes the plan: creates the right-pane split, adds tabs (gitui, dev servers, terminal), opens a linked browser workspace if a web framework was detected, and sets sidebar metadata (git branch, dirty files, browser link).
+
+### 3. Launch
+
+The agent starts in the left pane with the workspace already fully configured.
+
+For non-Claude agents, the analyze step is skipped — they get a default layout with gitui + terminal.
 
 ## Agent configuration
 
@@ -68,40 +94,17 @@ Optional `.cmux-ide.json` in your project root:
 }
 ```
 
-### Claude Code integration
+## Claude Code integration
 
-When the agent is `claude`, cmux-ide:
-- Uses Haiku to analyze project context and determine what tabs/browser to create
-- Mechanically creates all surfaces from the JSON plan (~3-5s total)
-- Creates gitui, terminal, dev server tabs, and linked browser workspaces
-- Sets sidebar metadata (git branch, dirty files, browser link)
+When the agent is `claude`, cmux-ide provides deeper integration:
 
-Every Claude Code session automatically knows about its workspace via:
-- **cmux CLI** — gives all sessions the ability to `read-screen`, `send`, `new-split`, `browser` and more on any surface
-- **SessionStart hook** — injects workspace state (surfaces, browser link, git info) into every session on launch
+- **SessionStart hook** — injects workspace state (surfaces, browser link, git info) into every Claude Code session automatically
+- **cmux skill** — gives Claude the ability to `read-screen`, `send`, `new-split`, `browser` and more on any surface
+- **Sidebar metadata** — git branch, dirty file count, linked browser workspace
 
-## Usage
-
-```bash
-# Launch workspace for current directory
-cmux-ide
-
-# Launch workspace for a specific project
-cmux-ide ~/dev/my-project
-
-# Override agent for one session
-CMUX_IDE_AGENT=codex cmux-ide ~/dev/my-project
-```
+This means Claude can start/stop dev servers, read terminal output from other tabs, open browser pages, and manage the workspace layout without any manual setup.
 
 ## Installation
-
-```bash
-git clone git@github.com:mwarger/cmux-ide.git ~/dev/cmux-ide
-cd ~/dev/cmux-ide
-./install.sh
-```
-
-The installer symlinks everything into place. See the output for manual steps (hooks).
 
 ### Prerequisites
 
@@ -110,31 +113,32 @@ The installer symlinks everything into place. See the output for manual steps (h
   - [Claude Code](https://claude.com/claude-code) — full integration with smart workspace detection
   - [Codex CLI](https://github.com/openai/codex) — launches directly
   - [OpenCode](https://opencode.ai) — launches directly
-  - [Pi](https://pi.ai) — launches directly
   - Any terminal-based AI agent
-- [gitui](https://github.com/extrawurst/gitui) (`brew install gitui`) — optional, for Claude Code auto-setup
+- [gitui](https://github.com/extrawurst/gitui) (`brew install gitui`) — optional, used in default tab layout
 
-## File structure
+### Install
 
-```
-bin/cmux-ide                    # Main launcher (workspace skeleton + agent launch)
-modules/browser.sh              # Creates linked browser workspace with metadata cross-refs
-modules/status.sh               # Sets sidebar metadata (git info, browser link)
-hooks/session-hook              # SessionStart hook — injects workspace context (Claude Code)
-commands/setup-workspace.md     # /setup-workspace skill — dynamic surface setup (Claude Code)
-commands/cmux.md                # /cmux slash command — quick reference (Claude Code)
-skills/using-cmux/SKILL.md      # Full cmux skill — browser automation, notifications, etc.
-install.sh                      # Symlink installer
-tests/test-agent-resolution.sh  # Agent resolution and launch tests
+```bash
+git clone git@github.com:mwarger/cmux-ide.git ~/dev/cmux-ide
+cd ~/dev/cmux-ide
+./install.sh
 ```
 
-## How workspace linking works
+The installer symlinks everything into place and prints manual steps for hooking into Claude Code (SessionStart and Notification hooks in `~/.claude/settings.json`).
 
-When a browser workspace is created, both workspaces get cross-referenced:
+## Project structure
 
 ```
-Code workspace sidebar:     browser=workspace:23  (green globe icon)
-Browser workspace sidebar:  code=workspace:22     (blue terminal icon)
+bin/cmux-ide                       # Main launcher (agent resolution, workspace creation, agent launch)
+modules/analyze-workspace.sh       # Phase 1: Haiku analyzes project context, returns JSON plan
+modules/create-surfaces.sh         # Phase 2: creates tabs, browser, sidebar metadata from plan
+modules/new-tab.sh                 # Helper: creates a single surface tab in a pane
+modules/browser.sh                 # Creates linked browser workspace with metadata cross-refs
+modules/status.sh                  # Sets sidebar metadata (git info, browser link)
+hooks/session-hook                 # SessionStart hook — injects workspace context (Claude Code)
+commands/cmux.md                   # /cmux slash command — quick reference (Claude Code)
+skills/using-cmux/SKILL.md         # Full cmux skill — browser automation, notifications, etc.
+install.sh                         # Symlink installer
+tests/test-agent-resolution.sh     # Agent resolution and launch tests
+tests/test-workspace-setup.sh      # Workspace setup integration tests
 ```
-
-The agent discovers this by running `cmux list-status` and reading the `browser` key. The linking info is also stored in `~/.config/cmux-ide/links.json` and per-project `.cmux-ide.state.json`.

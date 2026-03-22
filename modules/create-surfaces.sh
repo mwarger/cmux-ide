@@ -134,5 +134,21 @@ json.dump(d, open(f, 'w'), indent=2)
 
 # --- Done ---
 
-cmux set-progress 1.0 --label "Ready" --workspace "$ws_ref" 2>/dev/null || true
-echo "create-surfaces: created $tab_index tabs for $ws_ref"
+cmux clear-progress --workspace "$ws_ref" 2>/dev/null || true
+
+# Build a summary of what was created
+tab_labels=""
+for label in "${!surface_refs[@]}"; do
+  if [[ -n "$tab_labels" ]]; then
+    tab_labels="$tab_labels, $label"
+  else
+    tab_labels="$label"
+  fi
+done
+summary="$tab_labels"
+if [[ -n "$browser_port" ]]; then
+  summary="$summary + browser :$browser_port"
+fi
+cmux set-status workspace "$summary" --icon "square.grid.2x2" --color "#4CAF50" --workspace "$ws_ref" 2>/dev/null || true
+
+# stdout kept silent — caller prints its own progress
