@@ -65,7 +65,7 @@ cmux-ide ~/dev/my-project
 CMUX_IDE_AGENT=codex cmux-ide ~/dev/my-project
 ```
 
-Supports any terminal-based AI agent: Claude Code, Codex CLI, OpenCode, Aider, or custom agents.
+Works with any terminal-based AI agent — Claude Code, Codex CLI, OpenCode, or your own. All agents get smart project analysis; Claude Code gets deeper integration (hooks, skills, browser automation).
 
 ## How it works
 
@@ -133,9 +133,10 @@ This means Claude can start/stop dev servers, read terminal output from other ta
 
 - [cmux](https://cmux.com) (macOS terminal for AI agents)
 - An AI agent (one of):
-  - [Claude Code](https://claude.com/claude-code) — full integration with smart workspace detection
+  - [Claude Code](https://claude.com/claude-code) — full integration (hooks, skills, browser automation)
   - [Codex CLI](https://github.com/openai/codex) — launches directly
   - [OpenCode](https://opencode.ai) — launches directly
+
   - Any terminal-based AI agent
 - [gitui](https://github.com/extrawurst/gitui) (`brew install gitui`) — optional, used in default tab layout
 
