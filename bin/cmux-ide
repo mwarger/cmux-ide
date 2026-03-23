@@ -132,24 +132,20 @@ launch_workspace() {
   # 3. Set initial progress indicator
   cmux set-progress 0.0 --label "Starting setup..." --workspace "$ws_ref" >/dev/null 2>&1 || true
 
-  # 4. Phase 1: Analyze workspace — Haiku for claude, default plan for others
+  # 4. Phase 1: Analyze workspace — all agents get smart analysis (falls back to default on failure)
   local plan_json tmp_plan
   local default_plan='{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}'
-  if [[ "$agent" == "claude" ]]; then
-    tmp_plan=$(mktemp)
-    "$HOME/bin/cmux-ide-modules/analyze-workspace.sh" "$project_dir" > "$tmp_plan" &
-    spin $! "Analyzing project..."
-    local analyze_exit=$?
-    printf "\r  ✓ Analyzing project...  \n" >&2
-    if [[ $analyze_exit -eq 0 ]]; then
-      plan_json=$(cat "$tmp_plan")
-    else
-      plan_json="$default_plan"
-    fi
-    rm -f "$tmp_plan"
+  tmp_plan=$(mktemp)
+  "$HOME/bin/cmux-ide-modules/analyze-workspace.sh" "$project_dir" > "$tmp_plan" &
+  spin $! "Analyzing project..."
+  local analyze_exit=$?
+  printf "\r  ✓ Analyzing project...  \n" >&2
+  if [[ $analyze_exit -eq 0 ]]; then
+    plan_json=$(cat "$tmp_plan")
   else
     plan_json="$default_plan"
   fi
+  rm -f "$tmp_plan"
 
   # 5. Phase 2: Execute — create all surfaces mechanically
   echo "$plan_json" | "$HOME/bin/cmux-ide-modules/create-surfaces.sh" "$ws_ref" "$project_dir" >/dev/null 2>&1 &
@@ -186,7 +182,7 @@ case "${1:-}" in
     echo ""
     echo "Agent config: CMUX_IDE_AGENT env var > .cmux-ide.json > ~/.config/cmux-ide/agent"
     echo "Workspace tabs are created automatically before the agent launches."
-    echo "Claude projects use Haiku to detect dev servers; other agents get gitui + terminal."
+    echo "Haiku analyzes the project to detect dev servers and layout archetype for all agents."
     exit 0
     ;;
   "")

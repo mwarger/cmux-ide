@@ -57,17 +57,31 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 echo "JSON plan validation"
 echo "────────────────────────────"
 
-# Extract validate_json from analyze-workspace.sh for unit testing
+# Extract validate_json from analyze-workspace.sh for unit testing (supports both formats)
 validate_json() {
   python3 -c "
 import json, sys
 try:
     plan = json.loads(sys.stdin.read())
-    assert isinstance(plan.get('tabs'), list), 'tabs must be a list'
-    assert len(plan['tabs']) > 0, 'tabs must not be empty'
-    for tab in plan['tabs']:
-        assert 'label' in tab, 'each tab must have a label'
-        assert 'command' in tab, 'each tab must have a command'
+    if 'zones' in plan:
+        zones = plan['zones']
+        assert isinstance(zones, dict), 'zones must be an object'
+        for zone_name, zone in zones.items():
+            assert 'position' in zone, f'zone {zone_name} must have position'
+            tabs = zone.get('tabs', [])
+            assert isinstance(tabs, list) and len(tabs) > 0, f'zone {zone_name} must have non-empty tabs'
+            for tab in tabs:
+                assert 'label' in tab, f'zone {zone_name}: each tab must have a label'
+                assert 'command' in tab, f'zone {zone_name}: each tab must have a command'
+        assert 'archetype' in plan, 'zones format requires archetype field'
+    elif 'tabs' in plan:
+        assert isinstance(plan['tabs'], list), 'tabs must be a list'
+        assert len(plan['tabs']) > 0, 'tabs must not be empty'
+        for tab in plan['tabs']:
+            assert 'label' in tab, 'each tab must have a label'
+            assert 'command' in tab, 'each tab must have a command'
+    else:
+        assert False, 'plan must have either zones or tabs key'
     browser = plan.get('browser')
     if browser is not None:
         assert isinstance(browser.get('port'), int), 'browser.port must be an int'
@@ -159,24 +173,37 @@ parse_plan() {
   python3 -c "
 import json, sys
 plan = json.load(sys.stdin)
-for tab in plan.get('tabs', []):
-    label = tab.get('label', '')
-    cmd = tab.get('command', '')
-    print(f'tab\t{label}\t{cmd}')
+if 'zones' in plan:
+    print(f'format\tzones\t{plan.get(\"archetype\", \"default\")}')
+    for zone_name, zone in plan['zones'].items():
+        position = zone.get('position', '')
+        style = zone.get('style', 'tabs')
+        for tab in zone.get('tabs', []):
+            label = tab.get('label', '')
+            cmd = tab.get('command', '')
+            print(f'zone_tab\t{zone_name}\t{position}\t{style}\t{label}\t{cmd}')
+else:
+    print('format\tflat\tdefault')
+    for tab in plan.get('tabs', []):
+        label = tab.get('label', '')
+        cmd = tab.get('command', '')
+        print(f'tab\t{label}\t{cmd}')
 browser = plan.get('browser')
 if browser and isinstance(browser, dict) and 'port' in browser:
     print(f'browser\t{browser[\"port\"]}')
 "
 }
 
-# Minimal plan
+# Minimal flat plan (now emits format line first)
 result=$(echo '{"tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}],"browser":null}' | parse_plan)
 line1=$(echo "$result" | sed -n '1p')
 line2=$(echo "$result" | sed -n '2p')
+line3=$(echo "$result" | sed -n '3p')
 line_count=$(echo "$result" | wc -l | tr -d ' ')
-assert_eq "minimal plan: 2 lines" "2" "$line_count"
-assert_eq "minimal plan: first tab is gitui" $'tab\tgitui\tgitui' "$line1"
-assert_eq "minimal plan: second tab is terminal" $'tab\tterminal\t' "$line2"
+assert_eq "minimal plan: 3 lines (format + 2 tabs)" "3" "$line_count"
+assert_eq "minimal plan: format line" $'format\tflat\tdefault' "$line1"
+assert_eq "minimal plan: first tab is gitui" $'tab\tgitui\tgitui' "$line2"
+assert_eq "minimal plan: second tab is terminal" $'tab\tterminal\t' "$line3"
 
 # Plan with browser
 result=$(echo '{"tabs":[{"label":"gitui","command":"gitui"}],"browser":{"port":5173}}' | parse_plan)
@@ -224,6 +251,80 @@ assert_exit_code "default plan validates" 0 "$rc"
 parsed=$(echo "$default_plan" | parse_plan)
 tab_count=$(echo "$parsed" | grep -c '^tab')
 assert_eq "default plan has 2 tabs" "2" "$tab_count"
+format_line=$(echo "$parsed" | head -1)
+assert_eq "default plan parsed as flat" $'format\tflat\tdefault' "$format_line"
+
+# --- Zones format validation tests ---
+
+echo ""
+echo "Zones format validation"
+echo "────────────────────────────"
+
+# Valid single-service zones plan
+result=$(echo '{"archetype":"single-service","zones":{"tools":{"position":"top-right","tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}]},"services":{"position":"bottom-right","style":"tabs","tabs":[{"label":"bun dev","command":"bun run dev"}]}},"browser":{"port":3000}}' | validate_json 2>/dev/null)
+rc=$?
+assert_exit_code "valid single-service zones plan passes" 0 "$rc"
+assert_contains "zones plan has archetype" '"archetype"' "$result"
+
+# Valid full-stack zones plan
+result=$(echo '{"archetype":"full-stack","zones":{"tools":{"position":"top-right","tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}]},"services":{"position":"bottom-right","style":"split","tabs":[{"label":"bun dev","command":"bun run dev"},{"label":"convex","command":"bunx convex dev"}]}},"browser":{"port":3000}}' | validate_json 2>/dev/null)
+rc=$?
+assert_exit_code "valid full-stack zones plan passes" 0 "$rc"
+assert_contains "full-stack plan has split style" '"split"' "$result"
+
+# Empty zone tabs rejected
+echo '{"archetype":"single-service","zones":{"tools":{"position":"top-right","tabs":[]}},"browser":null}' | validate_json 2>/dev/null
+rc=$?
+assert_exit_code "empty zone tabs rejected" 1 "$rc"
+
+# Zone missing position rejected
+echo '{"archetype":"single-service","zones":{"tools":{"tabs":[{"label":"gitui","command":"gitui"}]}},"browser":null}' | validate_json 2>/dev/null
+rc=$?
+assert_exit_code "zone missing position rejected" 1 "$rc"
+
+# Zones format without archetype rejected
+echo '{"zones":{"tools":{"position":"top-right","tabs":[{"label":"gitui","command":"gitui"}]}},"browser":null}' | validate_json 2>/dev/null
+rc=$?
+assert_exit_code "zones without archetype rejected" 1 "$rc"
+
+# Neither tabs nor zones rejected
+echo '{"browser":null}' | validate_json 2>/dev/null
+rc=$?
+assert_exit_code "neither tabs nor zones rejected" 1 "$rc"
+
+# --- Zones format parsing tests ---
+
+echo ""
+echo "Zones plan JSON → tab-separated parsing"
+echo "────────────────────────────────────────"
+
+# Single-service zones plan
+result=$(echo '{"archetype":"single-service","zones":{"tools":{"position":"top-right","tabs":[{"label":"gitui","command":"gitui"},{"label":"terminal","command":""}]},"services":{"position":"bottom-right","style":"tabs","tabs":[{"label":"bun dev","command":"bun run dev"}]}},"browser":{"port":3000}}' | parse_plan)
+format_line=$(echo "$result" | head -1)
+assert_eq "zones format detected" $'format\tzones\tsingle-service' "$format_line"
+zone_tab_count=$(echo "$result" | grep -c '^zone_tab')
+assert_eq "zones plan has 3 zone_tab lines" "3" "$zone_tab_count"
+tools_count=$(echo "$result" | grep -c '^zone_tab	tools	')
+assert_eq "2 tools tabs" "2" "$tools_count"
+services_count=$(echo "$result" | grep -c '^zone_tab	services	')
+assert_eq "1 services tab" "1" "$services_count"
+browser_line=$(echo "$result" | grep '^browser')
+assert_eq "zones plan browser port" $'browser\t3000' "$browser_line"
+
+# Full-stack zones plan
+result=$(echo '{"archetype":"full-stack","zones":{"tools":{"position":"top-right","tabs":[{"label":"gitui","command":"gitui"}]},"services":{"position":"bottom-right","style":"split","tabs":[{"label":"bun dev","command":"bun run dev"},{"label":"convex","command":"bunx convex dev"}]}},"browser":null}' | parse_plan)
+format_line=$(echo "$result" | head -1)
+assert_eq "full-stack format detected" $'format\tzones\tfull-stack' "$format_line"
+# Check style field is preserved
+svc_line=$(echo "$result" | grep '^zone_tab	services	' | head -1)
+assert_contains "services style is split" $'\tsplit\t' "$svc_line"
+
+# Old flat format backward compat
+result=$(echo '{"tabs":[{"label":"gitui","command":"gitui"}],"browser":null}' | parse_plan)
+format_line=$(echo "$result" | head -1)
+assert_eq "flat format backward compat" $'format\tflat\tdefault' "$format_line"
+tab_count=$(echo "$result" | grep -c '^tab')
+assert_eq "flat format has tab lines" "1" "$tab_count"
 
 # --- Summary ---
 

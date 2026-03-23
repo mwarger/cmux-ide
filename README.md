@@ -10,7 +10,7 @@ Project workspaces for [cmux](https://cmux.com) that set themselves up. Point it
   ✓ Launching claude
 ```
 
-**Code workspace** (two panes, right has surface tabs):
+**Flat layout** (simple projects — two panes, right has surface tabs):
 ```
 ┌─────────────────────┬──────────────────────┐
 │                     │ [gitui] [rt] [term]  │ ← surface tabs
@@ -18,6 +18,26 @@ Project workspaces for [cmux](https://cmux.com) that set themselves up. Point it
 │   (full left pane)  │   (active tab)       │
 │                     │                      │
 └─────────────────────┴──────────────────────┘
+```
+
+**Single-service layout** (projects with a dev server):
+```
+┌─────────────────────┬──────────────────────┐
+│                     │ [gitui] [rt] [term]  │ ← tools (top-right)
+│    AI Agent         ├──────────────────────┤
+│   (full left pane)  │ [bun dev]            │ ← services (bottom-right)
+│                     │                      │
+└─────────────────────┴──────────────────────┘
+```
+
+**Full-stack layout** (multi-service projects — services split side-by-side):
+```
+┌─────────────────────┬──────────────────────┐
+│                     │ [gitui] [rt] [term]  │ ← tools (top-right)
+│    AI Agent         ├───────────┬──────────┤
+│   (full left pane)  │ admin_demo│ admin_api│ ← services (bottom-right, split)
+│                     │           │          │
+└─────────────────────┴───────────┴──────────┘
 ```
 
 **Browser workspace** (linked, full window, separate sidebar entry):
@@ -53,17 +73,20 @@ Setup happens in two phases before the agent launches:
 
 ### 1. Analyze
 
-Haiku reads your project context — `package.json`, `CLAUDE.md`, `.cmux-ide.json` — detects frameworks, dev servers, and tooling, then returns a JSON plan describing which tabs and browser windows to create.
+Haiku reads your project context — `package.json`, `CLAUDE.md`, `.cmux-ide.json` — detects frameworks, dev servers, and tooling, then picks a layout archetype and returns a JSON plan.
+
+Layout archetypes:
+- **Flat** — simple projects with no dev servers. Two panes: agent left, tools right.
+- **Single-service** — projects with one dev server. Three panes: agent left, tools top-right, service bottom-right.
+- **Full-stack** — multi-service projects (e.g. frontend + backend). Four panes: agent left, tools top-right, services split side-by-side bottom-right.
 
 ### 2. Create
 
-Bash mechanically executes the plan: creates the right-pane split, adds tabs (gitui, dev servers, terminal), opens a linked browser workspace if a web framework was detected, and sets sidebar metadata (git branch, dirty files, browser link).
+Bash mechanically executes the plan: creates pane splits matching the archetype, adds tabs (gitui, dev servers, terminal), opens a linked browser workspace if a web framework was detected, and sets sidebar metadata (git branch, dirty files, browser link).
 
 ### 3. Launch
 
 The agent starts in the left pane with the workspace already fully configured.
-
-For non-Claude agents, the analyze step is skipped — they get a default layout with gitui + terminal.
 
 ## Agent configuration
 
@@ -130,8 +153,8 @@ The installer symlinks everything into place and prints manual steps for hooking
 
 ```
 bin/cmux-ide                       # Main launcher (agent resolution, workspace creation, agent launch)
-modules/analyze-workspace.sh       # Phase 1: Haiku analyzes project context, returns JSON plan
-modules/create-surfaces.sh         # Phase 2: creates tabs, browser, sidebar metadata from plan
+modules/analyze-workspace.sh       # Phase 1: Haiku analyzes project, picks archetype, returns JSON plan
+modules/create-surfaces.sh         # Phase 2: creates zone layout + tabs from plan (flat, single-service, full-stack)
 modules/new-tab.sh                 # Helper: creates a single surface tab in a pane
 modules/browser.sh                 # Creates linked browser workspace with metadata cross-refs
 modules/status.sh                  # Sets sidebar metadata (git info, browser link)

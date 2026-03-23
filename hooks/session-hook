@@ -25,6 +25,7 @@ if d.get('browser_workspace'): parts.append(f\"Linked browser: {d['browser_works
 if d.get('surfaces'):
     for name, sf in d['surfaces'].items():
         parts.append(f\"  {name}: {sf}\")
+if d.get('archetype'): parts.append(f\"Layout: {d['archetype']}\")
 if d.get('profile'): parts.append(f\"Profile: {d['profile']}\")
 print(' | '.join(parts))
 " 2>/dev/null) || state_info=""
